@@ -1,0 +1,88 @@
+Below the requests written to answer to the business tasks in each category : sales, finance, logistics and human resources. 
+
+Sales: The number of products sold by category and by month, with comparison and rate of change compared to the same month of the previous year.
+Note the use of the "case when" statements in the "select" statement that allow us to present the information in a table with 2021 in a column and 2020 in another one
+without missing any information as 0 is filled if there is no sales in a month. That way, it is also easier to have a column with the change rate. 
+
+SELECT 
+  p.productLine as category, 
+  MONTH(o.orderDate) as month, 
+  SUM(CASE WHEN YEAR(o.orderDate) = year(current_date) THEN quantityOrdered ELSE 0 END) AS products_sold_current_year,
+  SUM(CASE WHEN YEAR(o.orderDate) = year(current_date)-1 THEN quantityOrdered ELSE 0 END) AS products_sold_last_year,
+  round((SUM(CASE WHEN YEAR(o.orderDate) = year(current_date) THEN quantityOrdered ELSE 0 END)-SUM(CASE WHEN year(o.orderDate) = year(current_date)-1 THEN quantityOrdered 
+  ELSE 0 END))/SUM(CASE WHEN year(o.orderDate) = year(current_date)-1 THEN quantityOrdered ELSE 0 END) * 100, 2) AS change_rate
+FROM orders o
+JOIN orderdetails od ON o.orderNumber = od.orderNumber
+JOIN products p ON od.productCode = p.productCode
+WHERE YEAR(o.orderDate) = 2021 or YEAR(o.orderDate) = 2020
+GROUP BY category, month
+ORDER BY category, month
+
+
+Finances: The turnover of the orders of the last two months by country. 
+Note the use of the "case when" statements in the "where" statement to have the months in full and not the last 60 or 90 days in this KPI. 
+
+SELECT oc.country, MONTH(o.orderDate), SUM(od.quantityOrdered*od.priceEach) as turnover
+FROM orderdetails od
+JOIN orders AS o ON o.orderNumber = od.orderNumber
+JOIN customers c ON c.customerNumber = o.customerNumber 
+JOIN employees e ON e.employeeNumber = c.salesRepEmployeeNumber
+JOIN offices oc ON oc.officeCode = e.officeCode
+WHERE 
+  CASE
+    WHEN MONTH(CURRENT_DATE) = 1 THEN (MONTH(o.orderDate) = MONTH(current_date) AND YEAR(o.orderDate) = YEAR(current_date)) OR (MONTH(o.orderDate) = MONTH(current_date)-1 
+      AND YEAR(o.orderDate) = YEAR(current_date)-1) OR (MONTH(o.orderDate) = MONTH(current_date)-2 AND YEAR(o.orderDate) = YEAR(current_date)-1)
+    WHEN MONTH(CURRENT_DATE) = 2 THEN (MONTH(o.orderDate) = MONTH(current_date) AND YEAR(o.orderDate) = YEAR(current_date)) OR (MONTH(o.orderDate) = MONTH(current_date)-1 
+      AND YEAR(o.orderDate) = YEAR(current_date)) OR (MONTH(o.orderDate) = MONTH(current_date)-2 AND YEAR(o.orderDate) = YEAR(current_date)-1)
+    ELSE (MONTH(o.orderDate) = MONTH(current_date)-1 AND YEAR(o.orderDate) = YEAR(current_date)) OR (MONTH(o.orderDate) = MONTH(current_date)-2 
+      AND YEAR(o.orderDate) = YEAR(current_date))
+  END
+GROUP BY oc.country, MONTH(o.orderDate)
+ORDER BY turnover DESC
+
+
+Finances: Orders that have not yet been paid.
+Note that this request was the more difficult because of the organization of the database. Payment information are attached to customers and not to the orders meaning that 
+it is not possible to have a precise information. The best we have been able to do is to an estimation of the total sum due by the customers
+
+SELECT total_orders_shipped - payments AS orders_shipped_not_paid
+FROM 
+  (SELECT SUM(od.quantityOrdered * od.priceEach) AS total_orders_shipped
+  FROM customers c
+  JOIN orders o ON c.customerNumber = o.customerNumber
+  JOIN orderdetails od ON o.orderNumber = od.orderNumber
+  WHERE status = "Shipped" or status = "Resolved" or status = "On hold") AS total_orders,
+  (SELECT SUM(p.amount) AS payments
+  FROM payments p) AS payments_received
+
+
+Logistics: The stock of the 5 most ordered products.
+This time, we decided to have the orders in the last 60 days and not by month. As it is to plan the stock compared to the sales, it seems more logical.
+
+SELECT p.productName, p.productCode, p.quantityInStock, SUM(quantityOrdered) AS quantity_ordered_last_60_days
+FROM products p
+JOIN orderdetails od ON od.productCode = p.productCode
+JOIN orders o	ON o.orderNumber = od.orderNumber
+WHERE TO_DAYS(o.orderDate) >= TO_DAYS(now()) - 60
+GROUP BY productName, p.productCode, quantityInStock
+ORDER BY quantity_ordered_last_60_days DESC 
+Limit 5
+
+
+Human Resources: Each month, the 2 sellers with the highest turnover.
+
+SELECT e.employeeNumber,
+  CONCAT(e.lastName, ' ', e.firstName) AS name, 
+  SUM(od.quantityOrdered * od.priceEach) AS turnover
+FROM employees e
+JOIN customers c ON e.employeeNumber = c.salesRepEmployeeNumber
+JOIN orders o ON c.customerNumber = o.customerNumber
+JOIN orderdetails od ON o.orderNumber = od.orderNumber
+WHERE o.status != 'Cancelled' AND
+  CASE
+    WHEN MONTH(CURRENT_DATE) = 1 THEN MONTH(orderDate) = MONTH(current_date)-1 AND YEAR(orderDate) = YEAR(current_date)-1
+    ELSE MONTH(orderDate) = MONTH(current_date)-1 AND YEAR(orderDate) = YEAR(current_date)
+  END
+GROUP BY c.salesRepEmployeeNumber
+ORDER BY turnover DESC
+Limit 2 
