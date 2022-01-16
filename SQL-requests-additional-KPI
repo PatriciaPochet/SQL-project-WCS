@@ -1,0 +1,52 @@
+The additional KPIs we have suggested. 
+
+Finance: turnover projection
+The output of this request is a little table with the turnover 2020 in the first column, the turnover 2021 until the present date in a second one, 
+the 2021 turnover trend for the entire year and the rate change that represents from 2020
+
+SELECT 
+    SUM(CASE WHEN year(o.orderDate) = year(current_date) THEN (quantityOrdered * priceEach) ELSE 0 END) as turnover_current_year,
+    round(SUM(CASE WHEN year(o.orderDate) = year(current_date) THEN (quantityOrdered * priceEach) ELSE 0 END) / month(current_date) * 12, 2) as proj_turnover_current_year,
+    SUM(CASE WHEN year(o.orderDate) = year(current_date)-1 THEN (quantityOrdered * priceEach) ELSE 0 END) as turnover_last_year,
+    round(((SUM(CASE WHEN year(o.orderDate) = year(current_date) THEN (quantityOrdered * priceEach) ELSE 0 END) / month(current_date) * 12)- 
+      (SUM(CASE WHEN year(o.orderDate) = year(current_date)-1 THEN (quantityOrdered * priceEach) ELSE 0 END)))/SUM(CASE WHEN year(o.orderDate) = year(current_date)-1 
+      THEN (quantityOrdered * priceEach) ELSE 0 END) * 100, 2) as progression_proj_current_year_from_last_year
+FROM orders o
+JOIN orderdetails od ON o.orderNumber = od.orderNumber
+WHERE o.status != 'Cancelled'
+
+
+Logistics: stock alerts
+
+SELECT productName, p.productCode, quantityInStock, sum(quantityOrdered*priceEach) as turnover, sum(quantityOrdered)
+FROM products p
+JOIN orderdetails o ON o.productCode = p.productCode
+GROUP BY quantityInStock
+HAVING quantityInStock <= 600
+ORDER BY quantityInStock
+
+
+Human resources: Top sellers by area with margin rate and turnover over the last 60 days
+
+SELECT
+  CONCAT(e.lastName, ' ', e.firstName) AS name, 
+  oc.territory AS territory,
+  SUM(od.quantityOrdered * od.priceEach) AS turnover,
+  round((SUM(od.quantityOrdered * od.priceEach) - SUM(od.quantityOrdered * p.buyPrice))/SUM(od.quantityOrdered * od.priceEach) * 100, 2) AS margin_rate,
+  (SELECT round((SUM(od.quantityOrdered * od.priceEach) - SUM(od.quantityOrdered * p.buyPrice))/SUM(od.quantityOrdered * od.priceEach) * 100, 2)
+  FROM offices oc
+  JOIN employees e ON e.officeCode = oc.officeCode
+  JOIN customers c ON e.employeeNumber = c.salesRepEmployeeNumber
+  JOIN orders o ON c.customerNumber = o.customerNumber
+  JOIN orderdetails od ON o.orderNumber = od.orderNumber
+  JOIN products p ON  od.productCode = p.productCode
+  WHERE TO_DAYS(o.orderDate) >= TO_DAYS(now()) - 60) AS global_margin_rate
+FROM offices oc
+JOIN employees e ON e.officeCode = oc.officeCode
+JOIN customers c ON e.employeeNumber = c.salesRepEmployeeNumber
+JOIN orders o ON c.customerNumber = o.customerNumber
+JOIN orderdetails od ON o.orderNumber = od.orderNumber
+JOIN products p ON  od.productCode = p.productCode
+WHERE TO_DAYS(o.orderDate) >= TO_DAYS(now()) - 60
+GROUP BY c.salesRepEmployeeNumber, territory
+ORDER BY turnover DESC
